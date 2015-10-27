@@ -52,15 +52,8 @@ class MultiAuthBridge extends \AuthPlugin {
 
     /**
      *
-     * @var Connection
-     */
-    protected $foundConnection;
-
-    /**
-     *
      */
     function __construct() {
-
         // Set some MediaWiki Values
         // This requires a user be logged into the wiki to make changes.
         $GLOBALS['wgGroupPermissions']['*']['edit'] = false;
@@ -88,12 +81,6 @@ class MultiAuthBridge extends \AuthPlugin {
         $this->authError = $message;
     }
 
-    /**
-     * @return Connection
-     */
-    public function getFoundConnection(){
-        return $this->foundConnection;
-    }
 
     /**
      * Add a user to the external authentication database.
@@ -119,7 +106,7 @@ class MultiAuthBridge extends \AuthPlugin {
      * @return bool
      */
     public function allowPasswordChange() {
-        return true;
+        return false;
     }
 
     /**
@@ -147,7 +134,7 @@ class MultiAuthBridge extends \AuthPlugin {
 
             //
             // Check Database for username and password.
-            $fstrMySQLQuery = sprintf("SELECT `id`, `username_canonical`, `password`, `salt` FROM `%s` WHERE `username_canonical` = '%s' LIMIT 1", $connection->getUserTable(), mysqli_real_escape_string($mysqliCon, $username));
+            $fstrMySQLQuery = sprintf("SELECT `id`, `username_canonical`, `password`, `salt` FROM `%s` WHERE `username_canonical` LIKE '%s' LIMIT 1", $connection->getUserTable(), mysqli_real_escape_string($mysqliCon, $username));
 
             // Query Database.
             $mysqliResult = mysqli_query($fstrMySQLQuery, $mysqliCon) or die($this->mySQLError('Unable to view external table'));
@@ -163,7 +150,6 @@ class MultiAuthBridge extends \AuthPlugin {
                  */
                 if ($valid && $this->isMemberOfWikiGroup($username, $connection)) {
                     $this->userId = $result['id'];
-                    $this->foundConnection = $connection;
                     return true;
                 }
             }
@@ -194,6 +180,9 @@ class MultiAuthBridge extends \AuthPlugin {
     public function addSymbbSystem($host, $user, $password, $database, $prefix = 'symbb_', $groups = array(), $usernamePrefix = ''){
 
         foreach($this->connections as $conn){
+            /**
+             * @var $conn Connection
+             */
             if($conn->getUsernamePrefix() == $usernamePrefix){
                 throw new \Exception('The Usernameprefix ['.$usernamePrefix.'] is already definied!');
             }
@@ -300,9 +289,7 @@ class MultiAuthBridge extends \AuthPlugin {
      * @return string
      */
     public function getCanonicalName($username) {
-
         $username   = $this->canonicalize($username);
-
         // At this point the username is invalid and should return just as it was passed.
         return $username;
     }
@@ -319,6 +306,7 @@ class MultiAuthBridge extends \AuthPlugin {
             $user->mEmail = $userData['data']['email']; // Set Email Address.
             return true;
         }
+        return false;
     }
 
     /**
@@ -343,7 +331,7 @@ class MultiAuthBridge extends \AuthPlugin {
             $cleanUsername = $this->canonicalize($cleanUsername);
 
             // Check Database for username and email address.
-            $query = sprintf("SELECT `username_canonical`, `email` FROM `%s` WHERE `username_clean` = '%s' LIMIT 1", $connection->getUserTable(), mysqli_real_escape_string($mysqliCon, $cleanUsername));
+            $query = sprintf("SELECT `username_canonical`, `email` FROM `%s` WHERE `username_canonical` LIKE '%s' LIMIT 1", $connection->getUserTable(), mysqli_real_escape_string($mysqliCon, $cleanUsername));
             $mysqliResult = mysqli_query($query, $mysqliCon) or die($this->mySQLError('Unable to view external table'));
 
             $groups = array();
