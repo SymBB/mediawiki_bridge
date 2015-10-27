@@ -10,4 +10,4 @@ $wgAuth->addSymbbSystem(
         'symbb_', // prefix of your symbb tables
         array(), // phpbb groups | empty = all users have acces | array = only user with this group (name of the groups)
         '' // prefix for users, you need different prefixes for each phpbbsystem because two or more system can have the same usernames
-);
+); 
