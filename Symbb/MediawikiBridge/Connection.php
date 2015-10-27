@@ -69,7 +69,7 @@ class Connection {
     }
 
     public function getUserGroupTable(){
-        return $this->prefix.'user_group';
+        return $this->prefix.'user_groups';
     }
 
     public function getGroupTable(){
