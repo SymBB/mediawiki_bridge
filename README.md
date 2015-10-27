@@ -1,8 +1,11 @@
 # mediawiki_bridge
 
-Insert this at the end of your LocalSettings.php file for each phpbb3 system
+Insert this at the end of your LocalSettings.php file for each symbb system
 
-$wgAuth->addSymbbSystem(
+$auth = new Symbb\MediawikiBridge\MultiAuthBridge();
+$auth->setLoginErrorMessage('<b>You need a phpBB account to login.</b><br />');
+$auth->setAuthErrorMessage('You are not a member of the required phpBB group.');
+$auth->addSymbbSystem(
         'DATABASE HOST',
         'DATABASE_USER',
         'DATABASE_PASSWORD',
