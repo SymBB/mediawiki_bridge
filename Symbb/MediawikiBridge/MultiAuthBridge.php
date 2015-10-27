@@ -121,7 +121,7 @@ class MultiAuthBridge extends \AuthPlugin {
      * @access public
      */
     public function authenticate($username, $password) {
-
+var_dump(1); die();
         $connections = $this->getConnections();
 
         foreach($connections as $connection){
@@ -594,5 +594,13 @@ class MultiAuthBridge extends \AuthPlugin {
     public function validDomain($domain) {
         return true;
     }
+
+    /**
+     * @return bool
+     */
+    public function allowSetLocalPassword(){
+        return false;
+    }
+
 
 }
