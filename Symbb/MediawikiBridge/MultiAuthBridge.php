@@ -80,10 +80,10 @@ class MultiAuthBridge extends \AuthPlugin {
         $wgHooks['UserLogout'][] = array($this, 'logoutForm');
         $wgHooks['UserLoginForm'][] = array($this, 'loginForm');
 
+
         $loader = require_once $this->symbbRootPath.'/app/bootstrap.php.cache';
         require_once $this->symbbRootPath.'/app/AppKernel.php';
         $kernel = new \AppKernel('prod', false);
-        $kernel->loadClassCache();
         Request::enableHttpMethodParameterOverride();
         $request = Request::createFromGlobals();
         $response = $kernel->handle($request);
@@ -427,10 +427,15 @@ class MultiAuthBridge extends \AuthPlugin {
         return false;
     }
 
+    /**
+     * @param $user
+     * @param $result
+     * @return bool
+     */
     public function AutoAuthenticateSymbb( $user, &$result){
 
         $symbbUser = $this->symbbContainer->get('symbb.core.user.manager')->getCurrentUser();
-var_dump($symbbUser->getUsername());
+
         if(!$symbbUser || !is_object($symbbUser)){
             return false;
         }
@@ -441,14 +446,29 @@ var_dump($symbbUser->getUsername());
             return false;
         }
 
-        $user->setName( $symbbUser->getUsername() );
-        $user->setId( $symbbUser->getId() );
-        $user->setEmail( $symbbUser->getEmail() );
+        $dbr =& wfGetDB( DB_SLAVE );
+        $s = $dbr->selectRow( 'user', array('user_id'), array('user_real_name' => 'symbb_id_'.$symbbUser->getId()), "UserAuthSymbb::AutoAuthenticateSymbb");
 
-        /* Should cache some day, I guess :) */
-        $user->setToken();
+        if ($s === false) {
+            $username = $symbbUser->getUsername();
+            $newUser = new \User();
+            $newUser->loadDefaults($username);         // Added as it's done this way in CentralAuth.
+            $newUser->setEmail($symbbUser->getEmail());
+            $newUser->setName($username);
+            $newUser->setRealName('symbb_id_'.$symbbUser->getId());
+            $newUser->mEmailAuthenticated = wfTimestamp();
+            $newUser->mTouched            = wfTimestamp();
+            $newUser->addToDatabase();
+            $user = &$newUser;
+        } else {
+            $user->mId = $s->user_id;
+        }
+
+        if ( $user->loadFromDatabase() ) {
+            $user->saveToCache();
+        }
+
         $result = true;
-
         return true;
     }
 
