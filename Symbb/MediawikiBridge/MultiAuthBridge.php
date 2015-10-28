@@ -447,7 +447,7 @@ class MultiAuthBridge extends \AuthPlugin {
         }
 
         $dbr =& wfGetDB( DB_SLAVE );
-        $s = $dbr->selectRow( 'user', array('user_id'), array('user_real_name' => 'symbb_id_'.$symbbUser->getId()), "UserAuthSymbb::AutoAuthenticateSymbb");
+        $s = $dbr->selectRow( 'user', array('user_id'), array('user_name' => $symbbUser->getUsername()), "UserAuthSymbb::AutoAuthenticateSymbb");
 
         if ($s === false) {
             $username = $symbbUser->getUsername();
@@ -455,7 +455,6 @@ class MultiAuthBridge extends \AuthPlugin {
             $newUser->loadDefaults($username);         // Added as it's done this way in CentralAuth.
             $newUser->setEmail($symbbUser->getEmail());
             $newUser->setName($username);
-            $newUser->setRealName('symbb_id_'.$symbbUser->getId());
             $newUser->mEmailAuthenticated = wfTimestamp();
             $newUser->mTouched            = wfTimestamp();
             $newUser->addToDatabase();
