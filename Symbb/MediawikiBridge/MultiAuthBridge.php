@@ -3,6 +3,7 @@
 namespace Symbb\MediawikiBridge;
 
 use Symfony\Component\Security\Core\Encoder\MessageDigestPasswordEncoder;
+use Symfony\Component\HttpFoundation\Request;
 
 /**
  * Class MultiAuthBridge
@@ -50,10 +51,18 @@ class MultiAuthBridge extends \AuthPlugin {
      */
     protected $connections = array();
 
+    protected $symbbRootPath = "";
+
+    protected $symbburl = "";
     /**
      *
      */
-    function __construct() {
+    function __construct($symbbRootPath, $symbburl) {
+        global $wgHooks;
+
+        $this->symbbRootPath = $symbbRootPath;
+        $this->symbburl = $symbburl;
+
         // Set some MediaWiki Values
         // This requires a user be logged into the wiki to make changes.
         $GLOBALS['wgGroupPermissions']['*']['edit'] = false;
@@ -62,9 +71,23 @@ class MultiAuthBridge extends \AuthPlugin {
         $GLOBALS['wgGroupPermissions']['*']['createaccount'] = false;
 
         // Load Hooks
-        $GLOBALS['wgHooks']['UserLoginForm'][] = array($this, 'onUserLoginForm', false);
-        $GLOBALS['wgHooks']['UserLoginComplete'][] = $this;
-        $GLOBALS['wgHooks']['UserLogout'][] = $this;
+        $wgHooks['UserLoginForm'][] = array($this, 'onUserLoginForm', false);
+        $wgHooks['UserLoginComplete'][] = $this;
+        $wgHooks['UserLogout'][] = $this;
+
+        $wgHooks['UserLoadFromSession'][] = array($this, 'AutoAuthenticateSymbb');
+
+        $wgHooks['UserLogout'][] = array($this, 'logoutForm');
+        $wgHooks['UserLoginForm'][] = array($this, 'loginForm');
+
+        $loader = require_once $this->symbbRootPath.'/app/bootstrap.php.cache';
+        require_once $this->symbbRootPath.'/app/AppKernel.php';
+        $kernel = new \AppKernel('prod', false);
+        $kernel->loadClassCache();
+        Request::enableHttpMethodParameterOverride();
+        $request = Request::createFromGlobals();
+        $response = $kernel->handle($request);
+        $this->symbbContainer = $kernel->getContainer();
     }
 
     /**
@@ -121,40 +144,6 @@ class MultiAuthBridge extends \AuthPlugin {
      * @access public
      */
     public function authenticate($username, $password) {
-var_dump(1); die();
-        $connections = $this->getConnections();
-
-        foreach($connections as $connection){
-
-            // Connect to the database.
-            $mysqliCon    = $this->connect($connection);
-
-            $username               = $this->removeConnectionUsernamePrefix($connection, $username);
-            $username               = $this->canonicalize($username);
-
-            //
-            // Check Database for username and password.
-            $fstrMySQLQuery = sprintf("SELECT `id`, `username_canonical`, `password`, `salt` FROM `%s` WHERE `username_canonical` LIKE '%s' LIMIT 1", $connection->getUserTable(), mysqli_real_escape_string($mysqliCon, $username));
-
-            // Query Database.
-            $mysqliResult = mysqli_query($fstrMySQLQuery, $mysqliCon) or die($this->mySQLError('Unable to view external table'));
-
-            while ($result = mysqli_fetch_assoc($mysqliResult)) {
-                // Use new phpass class
-                $encoder = new MessageDigestPasswordEncoder($this->pwAlgorithm, $this->pwEncodeHashAsBase64, $this->pwIterations);
-                $valid = $encoder->isPasswordValid($result['password'], $password, $result['salt']);
-
-                /**
-                 * Check if password submited matches the symbb password.
-                 * Also check if user is a member of the phpbb group 'wiki'.
-                 */
-                if ($valid && $this->isMemberOfWikiGroup($username, $connection)) {
-                    $this->userId = $result['id'];
-                    return true;
-                }
-            }
-        }
-
         return false;
     }
 
@@ -167,44 +156,6 @@ var_dump(1); die();
         return null === $string ? null : mb_convert_case($string, MB_CASE_LOWER, mb_detect_encoding($string));
     }
 
-    /**
-     * @param $host
-     * @param $user
-     * @param $password
-     * @param $database
-     * @param string $prefix
-     * @param array $groups
-     * @param string $usernamePrefix
-     * @throws \Exception
-     */
-    public function addSymbbSystem($host, $user, $password, $database, $prefix = 'symbb_', $groups = array(), $usernamePrefix = ''){
-
-        foreach($this->connections as $conn){
-            /**
-             * @var $conn Connection
-             */
-            if($conn->getUsernamePrefix() == $usernamePrefix){
-                throw new \Exception('The Usernameprefix ['.$usernamePrefix.'] is already definied!');
-            }
-        }
-
-        $connection = new Connection();
-        $connection->setHost($host);
-        $connection->setUser($user);
-        $connection->setPassword($password);
-        $connection->setDatabase($database);
-        $connection->setPrefix($prefix);
-        $connection->setGroups($groups);
-        $connection->setUsernameprefix($usernamePrefix);
-        $this->connections[] = $connection;
-    }
-
-    /**
-     * @return array
-     */
-    public function getConnections(){
-        return $this->connections;
-    }
 
     /**
      * Return true if the wiki should create a new local account automatically
@@ -243,44 +194,6 @@ var_dump(1); die();
         return false;
     }
 
-    /**
-     * Connect to the database. All of these settings are from the
-     * LocalSettings.php file. This assumes that the PHPBB uses the same
-     * database/server as the wiki.
-     *
-     * @return \mysqli
-     */
-    private function connect(Connection $connection) {
-
-        // Connect to database. I supress the error here.
-        $mysqliCon = mysqli_connect($connection->getHost(), $connection->getUser(), $connection->getPassword(), true);
-
-        // Check if we are connected to the database.
-        if (!$mysqliCon) {
-            $this->mySQLError('There was a problem when connecting to the phpBB database.<br /> Check your Host('.$connection->getHost().'), Username('.$connection->getUser().'), and Password settings.<br />');
-        }
-
-        // Select Database
-        $db_selected = mysqli_select_db($connection->getDatabase(), $mysqliCon);
-
-        // Check if we were able to select the database.
-        if (!$db_selected) {
-            $this->mySQLError('There was a problem when connecting to the phpBB database.<br />The database ' . $connection->getDatabase() . ' was not found.<br />');
-        }
-
-        mysqli_query("SET NAMES 'utf8'", $mysqliCon); // This is so utf8 usernames work. Needed for MySQL 4.1
-
-        return $mysqliCon;
-    }
-
-    /**
-     * This turns on debugging
-     *
-     */
-    public function EnableDebug() {
-        $this->debug = true;
-        return;
-    }
 
     /**
      * If you want to munge the case of an account name before the final
@@ -316,92 +229,13 @@ var_dump(1); die();
      */
     protected function getUserData($username){
 
-        $connections = $this->getConnections();
+        $symbbUser = $this->symbbContainer->get('symbb.core.user.manager')->findByUsername($username);
 
-        foreach($connections as $connection){
-
-            /**
-             * @var $connection Connection
-             */
-
-            // Connect to the database.
-            $mysqliCon = $this->connect($connection);
-            //
-            $cleanUsername = $this->removeConnectionUsernamePrefix($connection, $username);
-            $cleanUsername = $this->canonicalize($cleanUsername);
-
-            // Check Database for username and email address.
-            $query = sprintf("SELECT `username_canonical`, `email` FROM `%s` WHERE `username_canonical` LIKE '%s' LIMIT 1", $connection->getUserTable(), mysqli_real_escape_string($mysqliCon, $cleanUsername));
-            $mysqliResult = mysqli_query($query, $mysqliCon) or die($this->mySQLError('Unable to view external table'));
-
-            $groups = array();
-
-            while ($result = mysqli_fetch_array($mysqliResult)) {
-
-                $query = sprintf("SELECT `group_id` FROM `%s` WHERE `user_id` = %i", $connection->getUserGroupTable(), $result['id']);
-                $mysqliGroupResult = mysqli_query($query, $mysqliCon) or die($this->mySQLError('Unable to view external table'));
-
-                while ($groupId = mysqli_fetch_array($mysqliGroupResult)) {
-                    $query = sprintf("SELECT `id`, `name` FROM `%s` WHERE `id` = %i", $connection->getGroupTable(), $groupId['group_id']);
-                    $mysqliGroupDataResult = mysqli_query($query, $mysqliCon) or die($this->mySQLError('Unable to view external table'));
-                    while ($group = mysqli_fetch_array($mysqliGroupDataResult)) {
-                        $groups[] = $group;
-                    }
-                }
-
-                return array(
-                    'data' => $result,
-                    'groups' => $groups
-                );
-            }
+        if(is_object($symbbUser)){
+            return $symbbUser;
         }
 
         return null;
-    }
-
-    /**
-     * @param Connection $connection
-     * @param $username
-     * @return string
-     */
-    public function removeConnectionUsernamePrefix(Connection $connection, $username){
-        $prefix     = $connection->getUsernamePrefix();
-        $prefix     = strtolower($prefix);
-        if(!empty($prefix) && strpos($username, $prefix) === 0){
-            $username = substr($username, strlen($prefix));
-        }
-        return $username;
-    }
-
-    /**
-     * @param $username
-     * @param Connection $connection
-     * @return bool
-     */
-    private function isMemberOfWikiGroup($username, Connection $connection) {
-
-        $groups = $connection->getGroups();
-
-        // In LocalSettings.php you can control if being a member of a wiki
-        // is required or not.
-        if (empty($groups)) {
-            return true;
-        }
-
-        $userdata = $this->getUserData($username);
-
-        foreach ($groups as $WikiGrpName) {
-
-            foreach($userdata['groups'] as $symbbGroup){
-                if(strtolower($symbbGroup['name']) == strtolower($WikiGrpName)){
-                    return true;
-                }
-            }
-        }
-
-        // Hook error message.
-        $GLOBALS['wgHooks']['UserLoginForm'][] = array($this, 'onUserLoginForm', $this->authError);
-        return false; // User is not in Wiki group.
     }
 
     /**
@@ -420,15 +254,6 @@ var_dump(1); die();
         $template->set('useemail', false); // Disable the mail new password box.
     }
 
-    /**
-     * This prints an error when a MySQL error is found.
-     *
-     * @param $message
-     * @throws \Exception
-     */
-    private function mySQLError($message) {
-        throw new \Exception($message . '<br />' . 'MySQL Error Number: ' . mysql_errno() . '<br />' . 'MySQL Error Message: ' . mysql_error() . '<br /><br />');
-    }
 
     /**
      * This is the hook that runs when a user logs in. This is where the
@@ -575,9 +400,9 @@ var_dump(1); die();
      */
     public function userExists($username) {
 
-        $data = $this->getUserData($username);
+        $symbbUser = $this->getUserData($username);
 
-        if(!empty($data)){
+        if(is_object($symbbUser)){
             return true;
         }
 
@@ -602,5 +427,37 @@ var_dump(1); die();
         return false;
     }
 
+    public function AutoAuthenticateSymbb( $user, &$result){
+
+        $symbbUser = $this->symbbContainer->get('symbb.core.user.manager')->getCurrentUser();
+var_dump($symbbUser->getUsername());
+        if(!$symbbUser || !is_object($symbbUser)){
+            return false;
+        }
+
+        // ID 1 = wiki default user
+        if( $symbbUser->getId() == 1 || $symbbUser->getSymbbType() != "user" ) {
+            $result = false;
+            return false;
+        }
+
+        $user->setName( $symbbUser->getUsername() );
+        $user->setId( $symbbUser->getId() );
+        $user->setEmail( $symbbUser->getEmail() );
+
+        /* Should cache some day, I guess :) */
+        $user->setToken();
+        $result = true;
+
+        return true;
+    }
+
+    public function logoutForm() {
+        header('Location: '.$this->symbburl.'/de/logout');
+    }
+
+    public function loginForm() {
+        header('Location: '.$this->symbburl.'/de/login');
+    }
 
 }
