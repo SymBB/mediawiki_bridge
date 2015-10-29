@@ -455,7 +455,7 @@ class MultiAuthBridge extends \AuthPlugin {
             $newUser->loadDefaults($username);         // Added as it's done this way in CentralAuth.
             $newUser->setEmail($symbbUser->getEmail());
             $newUser->setName($username);
-            $newUser->mEmailAuthenticated = wfTimestamp();
+            $newUser->confirmEmail();
             $newUser->mTouched            = wfTimestamp();
             $newUser->addToDatabase();
             $user = &$newUser;
